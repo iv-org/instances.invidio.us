@@ -18,6 +18,10 @@ require "http/client"
 require "kemal"
 require "uri"
 
+require "./helpers/*"
+
+CONFIG = load_config()
+
 Kemal::CLI.new ARGV
 
 macro rendered(filename)
@@ -68,6 +72,22 @@ spawn do
 
       case type = host.split(".")[-1]
       when "onion"
+        type = "onion"
+
+        if CONFIG["fetch_onion_instance_stats"]?
+          begin
+            args = Process.parse_arguments("--socks5-hostname '#{CONFIG["tor_sock_proxy_address"]}:#{CONFIG["tor_sock_proxy_port"]}' 'http://#{uri.host}/api/v1/stats'")
+            response = nil
+            Process.run("curl", args: args) do |result|
+              data = result.output.read_line
+              response = JSON.parse(data)
+            end
+
+            stats = response
+          rescue ex
+            stats = nil
+          end
+        end
       when "i2p"
       else
         type = uri.scheme.not_nil!
@@ -88,7 +108,7 @@ spawn do
     INSTANCES.clear
     INSTANCES.merge! instances
 
-    sleep 5.minutes
+    sleep CONFIG["minutes_between_refresh"].as_i.minutes
   end
 end
 
