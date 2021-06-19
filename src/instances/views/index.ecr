@@ -118,7 +118,7 @@
               <td><%= instance[:type] %></td>
               <td><%= instance[:stats]?.try &.["usage"]?.try &.["users"]["total"] || "-" %></td>
               <td><%= instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? "✔" : "❌" } || "-" %></td>
-              <td><%= instance[:flag]? ? "#{instance[:flag]} #{instance[:region]}" : "-" %></td>
+              <td><%= instance[:country]? ? "#{instance[:country][:flag]} #{instance[:country][:name]}" : "-" %></td>
               <td><%= instance[:monitor]?.try &.["30dRatio"]["ratio"] || "-" %></td>
             </tr>
           <% end %>

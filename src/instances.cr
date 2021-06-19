@@ -18,6 +18,7 @@ require "http/client"
 require "kemal"
 require "uri"
 
+require "./fetch.cr"
 require "./helpers/*"
 
 CONFIG = load_config()
@@ -28,9 +29,14 @@ macro rendered(filename)
   render "src/instances/views/#{{{filename}}}.ecr"
 end
 
-alias Instance = NamedTuple(flag: String?, region: String?, stats: JSON::Any?, type: String, uri: String, monitor: JSON::Any?)
+alias Owner = NamedTuple(name: String, url: String)
+alias Country = NamedTuple(flag: String, region: String, name: String)
+alias Modified = NamedTuple(is_modified: Bool, source_url: String?)
 
-INSTANCES = {} of String => Instance
+alias ClearNetInstance = NamedTuple(country: Country, stats: JSON::Any?, type: String, uri: String, status_url: String?, privacy_policy: String?, ddos_mitm_protection: String?, owner: Owner, modified: Modified, monitor: JSON::Any?)
+alias OnionInstance = NamedTuple(country: Country, stats: JSON::Any?, type: String, uri: String, associated_clearnet_instance: String?, privacy_policy: String?, owner: Owner, modified: Modified, monitor: JSON::Any?)
+
+INSTANCES = {} of String => ClearNetInstance | OnionInstance
 
 spawn do
   loop do
@@ -54,59 +60,23 @@ spawn do
         break
       end
     end
+
     begin
-      body = HTTP::Client.get(URI.parse("https://raw.githubusercontent.com/iv-org/documentation/master/Invidious-Instances.md")).body
+      # Needs to be replaced once merged!
+      body = HTTP::Client.get(URI.parse("https://raw.githubusercontent.com/syeopite/documentation/alt-instance-list/instances.yaml")).body
     rescue ex
       body = ""
     end
 
-    instances = {} of String => Instance
+    instance_yaml = load_instance_yaml(body)
 
-    body = body.split("### Blocked:")[0]
-    body.scan(/\[(?<host>[^ \]]+)\]\((?<uri>[^\)]+)\)( .(?<region>[\x{1f100}-\x{1f1ff}]{2}))?/mx).each do |md|
-      region = md["region"]?.try { |region| region.codepoints.map { |codepoint| (codepoint - 0x1f1a5).chr }.join("") }
-      flag = md["region"]?
+    instance_storage = {} of String => ClearNetInstance | OnionInstance
 
-      uri = URI.parse(md["uri"])
-      host = md["host"]
-
-      case type = host.split(".")[-1]
-      when "onion"
-        type = "onion"
-
-        if CONFIG["fetch_onion_instance_stats"]?
-          begin
-            args = Process.parse_arguments("--socks5-hostname '#{CONFIG["tor_sock_proxy_address"]}:#{CONFIG["tor_sock_proxy_port"]}' 'http://#{uri.host}/api/v1/stats'")
-            response = nil
-            Process.run("curl", args: args) do |result|
-              data = result.output.read_line
-              response = JSON.parse(data)
-            end
-
-            stats = response
-          rescue ex
-            stats = nil
-          end
-        end
-      when "i2p"
-      else
-        type = uri.scheme.not_nil!
-        client = HTTP::Client.new(uri)
-        client.connect_timeout = 5.seconds
-        client.read_timeout = 5.seconds
-        begin
-          stats = JSON.parse(client.get("/api/v1/stats").body)
-        rescue ex
-          stats = nil
-        end
-      end
-
-      monitor = monitors.try &.select { |monitor| monitor["name"].try &.as_s == host }[0]?
-      instances[host] = {flag: flag, region: region, stats: stats, type: type, uri: uri.to_s, monitor: monitor || instances[host]?.try &.[:monitor]?}
-    end
+    instance_yaml["instances"]["https"].as_a.each { |i| instance_storage[URI.parse(i["url"].to_s).host.not_nil!] = prepare_http_instance(i, instance_storage, monitors) }
+    instance_yaml["instances"]["onion"].as_a.each { |i| instance_storage[URI.parse(i["url"].to_s).host.not_nil!] = prepare_onion_instance(i, instance_storage) }
 
     INSTANCES.clear
-    INSTANCES.merge! instances
+    INSTANCES.merge! instance_storage
 
     sleep CONFIG["minutes_between_refresh"].as_i.minutes
   end
@@ -154,13 +124,13 @@ static_headers do |response, filepath, filestat|
 end
 
 SORT_PROCS = {
-  "health"   => ->(name : String, instance : Instance) { -(instance[:monitor]?.try &.["30dRatio"]["ratio"].as_s.to_f || 0.0) },
-  "location" => ->(name : String, instance : Instance) { instance[:region]? || "ZZ" },
-  "name"     => ->(name : String, instance : Instance) { name },
-  "signup"   => ->(name : String, instance : Instance) { instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? 0 : 1 } || 2 },
-  "type"     => ->(name : String, instance : Instance) { instance[:type] },
-  "users"    => ->(name : String, instance : Instance) { -(instance[:stats]?.try &.["usage"]?.try &.["users"]["total"].as_i || 0) },
-  "version"  => ->(name : String, instance : Instance) { instance[:stats]?.try &.["software"]?.try &.["version"].as_s.try &.split("-", 2)[0].split(".").map { |a| -a.to_i } || [0, 0, 0] },
+  "health"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { -(instance[:monitor]?.try &.["30dRatio"]["ratio"].as_s.to_f || 0.0) },
+  "location" => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:country][:region]? || "ZZ" },
+  "name"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { name },
+  "signup"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? 0 : 1 } || 2 },
+  "type"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:type] },
+  "users"    => ->(name : String, instance : ClearNetInstance | OnionInstance) { -(instance[:stats]?.try &.["usage"]?.try &.["users"]["total"].as_i || 0) },
+  "version"  => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:stats]?.try &.["software"]?.try &.["version"].as_s.try &.split("-", 2)[0].split(".").map { |a| -a.to_i } || [0, 0, 0] },
 }
 
 def sort_instances(instances, sort_by)

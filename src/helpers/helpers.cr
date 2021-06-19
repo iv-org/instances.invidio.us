@@ -1,6 +1,9 @@
 require "yaml"
 
 def load_config
-  config = YAML.parse(File.read("config.yml"))
-  return config
+  return YAML.parse(File.read("config.yml"))
+end
+
+def load_instance_yaml(contents)
+  return YAML.parse(contents)
 end
