@@ -30,11 +30,9 @@ macro rendered(filename)
 end
 
 alias Owner = NamedTuple(name: String, url: String)
-alias Country = NamedTuple(flag: String, region: String, name: String)
-alias Modified = NamedTuple(is_modified: Bool, source_url: String?)
 
-alias ClearNetInstance = NamedTuple(country: Country, stats: JSON::Any?, type: String, uri: String, status_url: String?, privacy_policy: String?, ddos_mitm_protection: String?, owner: Owner, modified: Modified, monitor: JSON::Any?)
-alias OnionInstance = NamedTuple(country: Country, stats: JSON::Any?, type: String, uri: String, associated_clearnet_instance: String?, privacy_policy: String?, owner: Owner, modified: Modified, monitor: JSON::Any?)
+alias ClearNetInstance = NamedTuple(flag: String, region: String, stats: JSON::Any?, type: String, uri: String, status_url: String?, privacy_policy: String?, ddos_mitm_protection: String?, owner: Owner, is_modified: Bool, source: String?, monitor: JSON::Any?)
+alias OnionInstance = NamedTuple(flag: String, region: String, stats: JSON::Any?, type: String, uri: String, associated_clearnet_instance: String?, privacy_policy: String?, owner: Owner, is_modified: Bool, source: String?, monitor: JSON::Any?)
 
 INSTANCES = {} of String => ClearNetInstance | OnionInstance
 
@@ -125,7 +123,7 @@ end
 
 SORT_PROCS = {
   "health"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { -(instance[:monitor]?.try &.["30dRatio"]["ratio"].as_s.to_f || 0.0) },
-  "location" => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:country][:region]? || "ZZ" },
+  "location" => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:region]? || "ZZ" },
   "name"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { name },
   "signup"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? 0 : 1 } || 2 },
   "type"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:type] },
