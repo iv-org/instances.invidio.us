@@ -18,15 +18,22 @@ require "http/client"
 require "kemal"
 require "uri"
 
+require "./fetch.cr"
+require "./helpers/helpers.cr"
+
+CONFIG = load_config()
+
 Kemal::CLI.new ARGV
 
 macro rendered(filename)
   render "src/instances/views/#{{{filename}}}.ecr"
 end
 
-alias Instance = NamedTuple(flag: String?, region: String?, stats: JSON::Any?, type: String, uri: String, monitor: JSON::Any?)
+alias Owner = NamedTuple(name: String, url: String)
+alias ClearNetInstance = NamedTuple(flag: String?, region: String?, country_name: String?, stats: JSON::Any?, type: String, uri: String, status_url: String?, privacy_policy: String?, ddos_protection: String?, owner: Owner, notes: String?, monitor: JSON::Any?)
+alias OnionInstance = NamedTuple(flag: String?, region: String?, country_name: String?, stats: JSON::Any?, type: String, uri: String, clearnet_url: String?, privacy_policy: String?, owner: Owner, notes: String?, monitor: JSON::Any?)
 
-INSTANCES = {} of String => Instance
+INSTANCES = {} of String => ClearNetInstance | OnionInstance
 
 spawn do
   loop do
@@ -51,44 +58,20 @@ spawn do
       end
     end
     begin
-      body = HTTP::Client.get(URI.parse("https://raw.githubusercontent.com/iv-org/documentation/master/Invidious-Instances.md")).body
+      # Needs to be replaced once merged!
+      body = HTTP::Client.get(URI.parse("https://raw.githubusercontent.com/TheFrenchGhosty/documentation/instances-list-rewrite/Public-Instances.md")).body
     rescue ex
       body = ""
     end
 
-    instances = {} of String => Instance
-
-    body = body.split("### Blocked:")[0]
-    body.scan(/\[(?<host>[^ \]]+)\]\((?<uri>[^\)]+)\)( .(?<region>[\x{1f100}-\x{1f1ff}]{2}))?/mx).each do |md|
-      region = md["region"]?.try { |region| region.codepoints.map { |codepoint| (codepoint - 0x1f1a5).chr }.join("") }
-      flag = md["region"]?
-
-      uri = URI.parse(md["uri"])
-      host = md["host"]
-
-      case type = host.split(".")[-1]
-      when "onion"
-      when "i2p"
-      else
-        type = uri.scheme.not_nil!
-        client = HTTP::Client.new(uri)
-        client.connect_timeout = 5.seconds
-        client.read_timeout = 5.seconds
-        begin
-          stats = JSON.parse(client.get("/api/v1/stats").body)
-        rescue ex
-          stats = nil
-        end
-      end
-
-      monitor = monitors.try &.select { |monitor| monitor["name"].try &.as_s == host }[0]?
-      instances[host] = {flag: flag, region: region, stats: stats, type: type, uri: uri.to_s, monitor: monitor || instances[host]?.try &.[:monitor]?}
-    end
+    instances = {} of String => ClearNetInstance | OnionInstance
+    get_clearnet_instances(body, instances, monitors)
+    get_onion_instances(body, instances)
 
     INSTANCES.clear
     INSTANCES.merge! instances
 
-    sleep 5.minutes
+    sleep CONFIG["minutes_between_refresh"].as_i.minutes
   end
 end
 
@@ -134,13 +117,13 @@ static_headers do |response, filepath, filestat|
 end
 
 SORT_PROCS = {
-  "health"   => ->(name : String, instance : Instance) { -(instance[:monitor]?.try &.["30dRatio"]["ratio"].as_s.to_f || 0.0) },
-  "location" => ->(name : String, instance : Instance) { instance[:region]? || "ZZ" },
-  "name"     => ->(name : String, instance : Instance) { name },
-  "signup"   => ->(name : String, instance : Instance) { instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? 0 : 1 } || 2 },
-  "type"     => ->(name : String, instance : Instance) { instance[:type] },
-  "users"    => ->(name : String, instance : Instance) { -(instance[:stats]?.try &.["usage"]?.try &.["users"]["total"].as_i || 0) },
-  "version"  => ->(name : String, instance : Instance) { instance[:stats]?.try &.["software"]?.try &.["version"].as_s.try &.split("-", 2)[0].split(".").map { |a| -a.to_i } || [0, 0, 0] },
+  "health"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { -(instance[:monitor]?.try &.["30dRatio"]["ratio"].as_s.to_f || 0.0) },
+  "location" => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:region]? || "ZZ" },
+  "name"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { name },
+  "signup"   => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:stats]?.try &.["openRegistrations"]?.try { |bool| bool.as_bool ? 0 : 1 } || 2 },
+  "type"     => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:type] },
+  "users"    => ->(name : String, instance : ClearNetInstance | OnionInstance) { -(instance[:stats]?.try &.["usage"]?.try &.["users"]["total"].as_i || 0) },
+  "version"  => ->(name : String, instance : ClearNetInstance | OnionInstance) { instance[:stats]?.try &.["software"]?.try &.["version"].as_s.try &.split("-", 2)[0].split(".").map { |a| -a.to_i } || [0, 0, 0] },
 }
 
 def sort_instances(instances, sort_by)
