@@ -1,0 +1,9 @@
+# Uses the system's CURL binary to do so.
+fetch_onion_instance_stats: true
+
+# TOR's Sock proxy address that CURL uses to connect to hidden services
+tor_sock_proxy_address: "127.0.0.1"
+tor_sock_proxy_port: 9050
+
+# Minutes before refreshing the instance stats
+minutes_between_refresh: 30
