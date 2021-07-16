@@ -32,11 +32,11 @@ end
 alias Owner = NamedTuple(name: String, url: String)
 
 alias ClearNetInstance = NamedTuple(flag: String, region: String, stats: JSON::Any?, type: String, uri: String, status_url: String?,
-                                    privacy_policy: String?, ddos_mitm_protection: String?, owner: Owner, is_modified: Bool, source: String?,
-                                    notes: Array(YAML::Any)?, monitor: JSON::Any?)
+  privacy_policy: String?, ddos_mitm_protection: String?, owner: Owner, is_modified: Bool, source: String?,
+  notes: Array(YAML::Any)?, monitor: JSON::Any?)
 
 alias OnionInstance = NamedTuple(flag: String, region: String, stats: JSON::Any?, type: String, uri: String, associated_clearnet_instance: String?,
-                                 privacy_policy: String?, owner: Owner, is_modified: Bool, source: String?, notes: Array(YAML::Any)?, monitor: JSON::Any?)
+  privacy_policy: String?, owner: Owner, is_modified: Bool, source: String?, notes: Array(YAML::Any)?, monitor: JSON::Any?)
 
 INSTANCES = {} of String => ClearNetInstance | OnionInstance
 
